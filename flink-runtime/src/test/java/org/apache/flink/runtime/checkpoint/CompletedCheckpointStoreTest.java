@@ -193,12 +193,20 @@ public abstract class CompletedCheckpointStoreTest extends TestLogger {
 
 	// ---------------------------------------------------------------------------------------------
 
-	public static TestCompletedCheckpoint createCheckpoint(
-		int id,
-		SharedStateRegistry sharedStateRegistry) throws IOException {
+	static TestCompletedCheckpoint createCheckpoint(
+			long id,
+			SharedStateRegistry sharedStateRegistry) {
+		return createCheckpoint(
+			id,
+			sharedStateRegistry,
+			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION));
+	}
 
+	static TestCompletedCheckpoint createCheckpoint(
+			long id,
+			SharedStateRegistry sharedStateRegistry,
+			CheckpointProperties props) {
 		int numberOfStates = 4;
-		CheckpointProperties props = CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION);
 
 		OperatorID operatorID = new OperatorID();
 

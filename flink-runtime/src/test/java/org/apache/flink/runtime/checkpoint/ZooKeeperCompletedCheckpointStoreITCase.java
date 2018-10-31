@@ -18,18 +18,14 @@
 
 package org.apache.flink.runtime.checkpoint;
 
-import org.apache.flink.runtime.concurrent.Executors;
-import org.apache.flink.runtime.jobgraph.JobStatus;
-import org.apache.flink.runtime.state.RetrievableStateHandle;
-import org.apache.flink.runtime.state.SharedStateRegistry;
-import org.apache.flink.runtime.zookeeper.RetrievableStateStorageHelper;
-import org.apache.flink.runtime.zookeeper.ZooKeeperTestEnvironment;
-
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.zookeeper.data.Stat;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.Test;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.core.IsEqual.equalTo;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -37,12 +33,17 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.flink.runtime.concurrent.Executors;
+import org.apache.flink.runtime.jobgraph.JobStatus;
+import org.apache.flink.runtime.state.RetrievableStateHandle;
+import org.apache.flink.runtime.state.SharedStateRegistry;
+import org.apache.flink.runtime.zookeeper.RetrievableStateStorageHelper;
+import org.apache.flink.runtime.zookeeper.ZooKeeperTestEnvironment;
+import org.apache.zookeeper.data.Stat;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.Test;
 
 /**
  * Tests for basic {@link CompletedCheckpointStore} contract and ZooKeeper state handling.
@@ -277,6 +278,42 @@ public class ZooKeeperCompletedCheckpointStoreITCase extends CompletedCheckpoint
 		recoveredTestCheckpoint.awaitDiscard();
 	}
 
+	@Test
+	public void respectCheckpointRetentionPolicyOnShutdown() throws Exception {
+		CompletedCheckpointStore checkpoints = createCheckpointStoreWithCheckpoints(
+			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.RETAIN_ON_CANCELLATION),
+			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
+			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.RETAIN_ON_FAILURE)
+		);
+
+		// Shut down the store. The first checkpoint should be retained and a new
+		// checkpoint store instance should be able to recover it later.
+		checkpoints.shutdown(JobStatus.CANCELED);
+
+		CompletedCheckpointStore recovered = createCompletedCheckpoints(
+			checkpoints.getMaxNumberOfRetainedCheckpoints());
+		recovered.recover();
+
+		TestCompletedCheckpoint latestCheckpoint = (TestCompletedCheckpoint) recovered.getLatestCheckpoint();
+
+		assertThat(recovered.getNumberOfRetainedCheckpoints(), is(1));
+		assertThat(latestCheckpoint.getCheckpointID(), is(1L));
+		assertThat(latestCheckpoint.isDiscarded(), is(false));
+	}
+
+	private CompletedCheckpointStore createCheckpointStoreWithCheckpoints(
+			CheckpointProperties... properties) throws Exception {
+		CompletedCheckpointStore checkpoints = createCompletedCheckpoints(99);
+		SharedStateRegistry registry = new SharedStateRegistry();
+		for (int i = 0; i < properties.length; i++) {
+			CompletedCheckpoint checkpoint = createCheckpoint(
+				i + 1,
+				registry,
+				properties[i]);
+			checkpoints.addCheckpoint(checkpoint);
+		}
+		return checkpoints;
+	}
 
 	static class HeapStateStorageHelper implements RetrievableStateStorageHelper<CompletedCheckpoint> {
 		@Override

@@ -18,6 +18,19 @@
 
 package org.apache.flink.runtime.checkpoint;
 
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
+
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.ConcurrentModificationException;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.Executor;
+import org.apache.curator.framework.CuratorFramework;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.jobgraph.JobStatus;
 import org.apache.flink.runtime.jobmanager.HighAvailabilityMode;
@@ -26,23 +39,8 @@ import org.apache.flink.runtime.zookeeper.RetrievableStateStorageHelper;
 import org.apache.flink.runtime.zookeeper.ZooKeeperStateHandleStore;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.function.ThrowingConsumer;
-
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.utils.ZKPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.ConcurrentModificationException;
-import java.util.List;
-import java.util.concurrent.Executor;
-
-import static org.apache.flink.util.Preconditions.checkArgument;
-import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * {@link CompletedCheckpointStore} for JobManagers running in {@link HighAvailabilityMode#ZOOKEEPER}.
@@ -300,18 +298,12 @@ public class ZooKeeperCompletedCheckpointStore implements CompletedCheckpointSto
 		if (jobStatus.isGloballyTerminalState()) {
 			LOG.info("Shutting down");
 
-			for (CompletedCheckpoint checkpoint : completedCheckpoints) {
-				tryRemoveCompletedCheckpoint(
-					checkpoint,
-					completedCheckpoint -> completedCheckpoint.discardOnShutdown(jobStatus));
-			}
+			// We require this pre-step as we otherwise delete the ZooKeeper node for a
+			// retained checkpoint since we call CompletedCheckpoint.discardOnShutdown(JobStatus)
+			// only in the callback after deletion of the corresponding ZooKeeper node.
+			releaseRetainedCheckpoints(jobStatus);
 
-			completedCheckpoints.clear();
-
-			String path = "/" + client.getNamespace();
-
-			LOG.info("Removing {} from ZooKeeper", path);
-			ZKPaths.deleteChildren(client.getZookeeperClient().getZooKeeper(), path, true);
+			removeAndDiscardCheckpoints(jobStatus);
 		} else {
 			LOG.info("Suspending");
 
@@ -320,6 +312,46 @@ public class ZooKeeperCompletedCheckpointStore implements CompletedCheckpointSto
 
 			// Release the state handle locks in ZooKeeper such that they can be deleted
 			checkpointsInZooKeeper.releaseAll();
+		}
+	}
+
+	private void releaseRetainedCheckpoints(JobStatus jobStatus) {
+		completedCheckpoints.stream()
+			.filter(checkpoint -> shouldRetainCheckpoint(checkpoint, jobStatus))
+			.forEach(this::tryReleaseCheckpoint);
+	}
+
+	private static boolean shouldRetainCheckpoint(CompletedCheckpoint checkpoint, JobStatus jobStatus) {
+		return !shouldDiscardCheckpoint(checkpoint, jobStatus);
+	}
+
+	private void removeAndDiscardCheckpoints(JobStatus jobStatus) {
+		Iterator<CompletedCheckpoint> it = this.completedCheckpoints.iterator();
+		while (it.hasNext()) {
+			CompletedCheckpoint checkpoint = it.next();
+
+			if (shouldDiscardCheckpoint(checkpoint, jobStatus)) {
+				tryRemoveCompletedCheckpoint(
+					checkpoint,
+					completedCheckpoint -> completedCheckpoint.discardOnShutdown(jobStatus));
+
+				it.remove();
+			}
+		}
+	}
+
+	private static boolean shouldDiscardCheckpoint(CompletedCheckpoint checkpoint, JobStatus jobStatus) {
+		return checkpoint.getProperties().shouldDiscardOnJobStatus(jobStatus);
+	}
+
+	private void tryReleaseCheckpoint(CompletedCheckpoint checkpoint) {
+		try {
+			checkpointsInZooKeeper.release(checkpointIdToPath(checkpoint.getCheckpointID()));
+		} catch (Exception e) {
+			LOG.warn(
+				"Failed to release retained checkpoint with ID {}",
+				checkpoint.getCheckpointID(),
+				e);
 		}
 	}
 
