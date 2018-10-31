@@ -224,12 +224,7 @@ public class CompletedCheckpoint implements Serializable {
 	}
 
 	public boolean discardOnShutdown(JobStatus jobStatus) throws Exception {
-
-		if (jobStatus == JobStatus.FINISHED && props.discardOnJobFinished() ||
-				jobStatus == JobStatus.CANCELED && props.discardOnJobCancelled() ||
-				jobStatus == JobStatus.FAILED && props.discardOnJobFailed() ||
-				jobStatus == JobStatus.SUSPENDED && props.discardOnJobSuspended()) {
-
+		if (props.shouldDiscardOnJobStatus(jobStatus)) {
 			doDiscard();
 			return true;
 		} else {
