@@ -18,12 +18,17 @@
 
 package org.apache.flink.runtime.checkpoint;
 
-import org.apache.flink.util.InstantiationUtil;
-
-import org.junit.Test;
-
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+
+import java.util.Arrays;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import org.apache.flink.runtime.jobgraph.JobStatus;
+import org.apache.flink.util.InstantiationUtil;
+import org.junit.Test;
 
 /**
  * Tests for the default checkpoint properties.
@@ -44,6 +49,11 @@ public class CheckpointPropertiesTest {
 		assertFalse(props.discardOnJobFailed());
 		assertFalse(props.discardOnJobSuspended());
 
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.FINISHED), is(true));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.CANCELED), is(true));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.FAILED), is(false));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.SUSPENDED), is(false));
+
 		props = CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.RETAIN_ON_CANCELLATION);
 
 		assertFalse(props.forceCheckpoint());
@@ -52,6 +62,11 @@ public class CheckpointPropertiesTest {
 		assertFalse(props.discardOnJobCancelled());
 		assertFalse(props.discardOnJobFailed());
 		assertFalse(props.discardOnJobSuspended());
+
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.FINISHED), is(true));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.CANCELED), is(false));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.FAILED), is(false));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.SUSPENDED), is(false));
 	}
 
 	/**
@@ -67,6 +82,11 @@ public class CheckpointPropertiesTest {
 		assertFalse(props.discardOnJobCancelled());
 		assertFalse(props.discardOnJobFailed());
 		assertFalse(props.discardOnJobSuspended());
+
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.FINISHED), is(false));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.CANCELED), is(false));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.FAILED), is(false));
+		assertThat(props.shouldDiscardOnJobStatus(JobStatus.SUSPENDED), is(false));
 	}
 
 	/**
@@ -96,4 +116,68 @@ public class CheckpointPropertiesTest {
 		}
 
 	}
+
+	@Test
+	public void nonTerminalJobStatusShouldNotDiscard() {
+		for (JobStatus jobStatus : jobStatuses(CheckpointPropertiesTest::isNotTerminalState)) {
+			CheckpointProperties checkpointProperties = checkpointProperties(jobStatus);
+
+			boolean shouldDiscard = checkpointProperties.shouldDiscardOnJobStatus(jobStatus);
+
+			assertThat(shouldDiscard, is(false));
+		}
+	}
+
+	@Test
+	public void terminalJobStatusShouldDiscard() {
+		for (JobStatus jobStatus : jobStatuses(JobStatus::isTerminalState)) {
+			CheckpointProperties checkpointProperties = checkpointProperties(jobStatus);
+
+			boolean shouldDiscard = checkpointProperties.shouldDiscardOnJobStatus(jobStatus);
+
+			assertThat(shouldDiscard, is(true));
+		}
+	}
+
+	private static Iterable<JobStatus> jobStatuses(Predicate<JobStatus> predicate) {
+		return Arrays.stream(JobStatus.values()).filter(predicate).collect(Collectors.toList());
+	}
+
+	private static boolean isNotTerminalState(JobStatus jobStatus) {
+		return !jobStatus.isTerminalState();
+	}
+
+	private static CheckpointProperties checkpointProperties(JobStatus discardOnJobStatus) {
+		boolean discardFinished = false;
+		boolean discardCancelled = false;
+		boolean discardFailed = false;
+		boolean discardSuspended = false;
+
+		switch (discardOnJobStatus) {
+			case FINISHED:
+				discardFinished = true;
+				break;
+			case CANCELED:
+				discardCancelled = true;
+				break;
+			case FAILED:
+				discardFailed = true;
+				break;
+			case SUSPENDED:
+				discardSuspended = true;
+				break;
+			default:
+		}
+
+		return new CheckpointProperties(
+			false,
+			CheckpointType.CHECKPOINT,
+			false,
+			discardFinished,
+			discardCancelled,
+			discardFailed,
+			discardSuspended
+		);
+	}
+
 }

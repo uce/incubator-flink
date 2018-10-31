@@ -18,12 +18,11 @@
 
 package org.apache.flink.runtime.checkpoint;
 
-import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.flink.runtime.jobgraph.JobStatus;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 import java.io.Serializable;
-
-import static org.apache.flink.util.Preconditions.checkNotNull;
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.runtime.jobgraph.JobStatus;
 
 /**
  * The configuration of a checkpoint. This describes whether
@@ -177,6 +176,20 @@ public class CheckpointProperties implements Serializable {
 	 */
 	public boolean isSavepoint() {
 		return checkpointType == CheckpointType.SAVEPOINT;
+	}
+
+	/**
+	 * Returns whether the properties indicate to discard on the provided jobStatus.
+	 *
+	 * @param jobStatus Job status to check properties against
+	 *
+	 * @return <code>true</code> if the properties indicate to discard on the provided jobStatus.
+	 */
+	public boolean shouldDiscardOnJobStatus(JobStatus jobStatus) {
+		return jobStatus == JobStatus.FINISHED && discardOnJobFinished()
+			|| jobStatus == JobStatus.CANCELED && discardOnJobCancelled()
+			|| jobStatus == JobStatus.FAILED && discardOnJobFailed()
+			|| jobStatus == JobStatus.SUSPENDED && discardOnJobSuspended();
 	}
 
 	// ------------------------------------------------------------------------
