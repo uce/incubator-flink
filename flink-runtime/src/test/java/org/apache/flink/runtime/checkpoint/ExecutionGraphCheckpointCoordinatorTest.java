@@ -54,7 +54,7 @@ public class ExecutionGraphCheckpointCoordinatorTest {
 		ExecutionGraph graph = createExecutionGraphAndEnableCheckpointing(counter, store);
 		graph.failGlobal(new Exception("Test Exception"));
 
-		verify(counter, times(1)).shutdown(JobStatus.FAILED);
+		verify(counter, times(1)).shutdown(JobStatus.FAILED, 0);
 		verify(store, times(1)).shutdown(eq(JobStatus.FAILED));
 	}
 
@@ -71,7 +71,7 @@ public class ExecutionGraphCheckpointCoordinatorTest {
 		graph.suspend(new Exception("Test Exception"));
 
 		// No shutdown
-		verify(counter, times(1)).shutdown(eq(JobStatus.SUSPENDED));
+		verify(counter, times(1)).shutdown(eq(JobStatus.SUSPENDED), eq(0));
 		verify(store, times(1)).shutdown(eq(JobStatus.SUSPENDED));
 	}
 

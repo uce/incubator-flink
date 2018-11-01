@@ -337,7 +337,8 @@ public class CheckpointCoordinator {
 				pendingCheckpoints.clear();
 
 				completedCheckpointStore.shutdown(jobStatus);
-				checkpointIdCounter.shutdown(jobStatus);
+				int numberOfRetainedCheckpoints = completedCheckpointStore.getNumberOfRetainedCheckpoints();
+				checkpointIdCounter.shutdown(jobStatus, numberOfRetainedCheckpoints);
 			}
 		}
 	}

@@ -36,9 +36,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
 
 public abstract class CheckpointIDCounterTest extends TestLogger {
 
@@ -77,7 +79,7 @@ public abstract class CheckpointIDCounterTest extends TestLogger {
 			CuratorFramework client = ZooKeeper.getClient();
 			assertNotNull(client.checkExists().forPath("/checkpoint-id-counter"));
 
-			counter.shutdown(JobStatus.FINISHED);
+			counter.shutdown(JobStatus.FINISHED, 0);
 			assertNull(client.checkExists().forPath("/checkpoint-id-counter"));
 		}
 
@@ -92,8 +94,28 @@ public abstract class CheckpointIDCounterTest extends TestLogger {
 			CuratorFramework client = ZooKeeper.getClient();
 			assertNotNull(client.checkExists().forPath("/checkpoint-id-counter"));
 
-			counter.shutdown(JobStatus.SUSPENDED);
+			counter.shutdown(JobStatus.SUSPENDED, 0);
 			assertNotNull(client.checkExists().forPath("/checkpoint-id-counter"));
+		}
+
+		@Test
+		public void retainCounterIfRetainedCheckpoints() throws Exception {
+			long expectedCheckpointId = 10;
+
+			CheckpointIDCounter counter = createCompletedCheckpoints();
+			counter.start();
+
+			counter.setCount(expectedCheckpointId);
+
+			// Shut down the counter. Since we retain a checkpoint a new checkpoint
+			// counter instance should be able to recover it later.
+			counter.shutdown(JobStatus.CANCELED, 1);
+
+			CheckpointIDCounter recovered = createCompletedCheckpoints();
+			recovered.start();
+
+			long currentCounter = recovered.getAndIncrement();
+			assertThat(currentCounter, is(expectedCheckpointId));
 		}
 
 		@Override
@@ -121,7 +143,7 @@ public abstract class CheckpointIDCounterTest extends TestLogger {
 			assertEquals(4, counter.getAndIncrement());
 		}
 		finally {
-			counter.shutdown(JobStatus.FINISHED);
+			counter.shutdown(JobStatus.FINISHED, 0);
 		}
 	}
 
@@ -184,7 +206,7 @@ public abstract class CheckpointIDCounterTest extends TestLogger {
 				executor.shutdown();
 			}
 
-			counter.shutdown(JobStatus.FINISHED);
+			counter.shutdown(JobStatus.FINISHED, 0);
 		}
 	}
 
@@ -201,7 +223,7 @@ public abstract class CheckpointIDCounterTest extends TestLogger {
 		assertEquals(1337, counter.getAndIncrement());
 		assertEquals(1338, counter.getAndIncrement());
 
-		counter.shutdown(JobStatus.FINISHED);
+		counter.shutdown(JobStatus.FINISHED, 0);
 	}
 
 	/**

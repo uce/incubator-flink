@@ -91,14 +91,15 @@ public class ZooKeeperCheckpointIDCounter implements CheckpointIDCounter {
 	}
 
 	@Override
-	public void shutdown(JobStatus jobStatus) throws Exception {
+	public void shutdown(JobStatus jobStatus, int numberOfRetainedCheckpoints) throws Exception {
 		synchronized (startStopLock) {
 			if (isStarted) {
 				LOG.info("Shutting down.");
 				sharedCount.close();
 				client.getConnectionStateListenable().removeListener(connStateListener);
 
-				if (jobStatus.isGloballyTerminalState()) {
+				boolean noRetainedCheckpoints = numberOfRetainedCheckpoints <= 0;
+				if (jobStatus.isGloballyTerminalState() && noRetainedCheckpoints) {
 					LOG.info("Removing {} from ZooKeeper", counterPath);
 					client.delete().deletingChildrenIfNeeded().inBackground().forPath(counterPath);
 				}

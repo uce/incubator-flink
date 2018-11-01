@@ -36,7 +36,7 @@ public class StandaloneCheckpointIDCounter implements CheckpointIDCounter {
 	public void start() throws Exception {}
 
 	@Override
-	public void shutdown(JobStatus jobStatus) throws Exception {}
+	public void shutdown(JobStatus jobStatus, int numberOfRetainedCheckpoints) throws Exception {}
 
 	@Override
 	public long getAndIncrement() throws Exception {

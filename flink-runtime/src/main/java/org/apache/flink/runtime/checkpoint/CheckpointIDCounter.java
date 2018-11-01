@@ -37,8 +37,9 @@ public interface CheckpointIDCounter {
 	 * actually be discarded or kept.
 	 *
 	 * @param jobStatus Job state on shut down
+	 * @param numberOfRetainedCheckpoints Number of retained checkpoints
 	 */
-	void shutdown(JobStatus jobStatus) throws Exception;
+	void shutdown(JobStatus jobStatus, int numberOfRetainedCheckpoints) throws Exception;
 
 	/**
 	 * Atomically increments the current checkpoint ID.
