@@ -95,6 +95,11 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 		.key("internal.cluster.execution-mode")
 		.defaultValue(ExecutionMode.NORMAL.toString());
 
+	public static final ConfigOption<String> TERMINATION_MESSAGE_PATH = ConfigOptions
+		.key("cluster.termination-message-path")
+		.noDefaultValue()
+		.withDescription("Optional path to write TerminationMessage to.");
+
 	protected static final Logger LOG = LoggerFactory.getLogger(ClusterEntrypoint.class);
 
 	protected static final int STARTUP_FAILURE_RETURN_CODE = 1;
@@ -511,12 +516,15 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 	// --------------------------------------------------
 
 	public static void runClusterEntrypoint(ClusterEntrypoint clusterEntrypoint) {
+		final TerminationMessageWriter terminationMessageWriter = TerminationMessageWriters
+			.forConfiguration(clusterEntrypoint.configuration);
 
 		final String clusterEntrypointName = clusterEntrypoint.getClass().getSimpleName();
 		try {
 			clusterEntrypoint.startCluster();
 		} catch (ClusterEntrypointException e) {
 			LOG.error(String.format("Could not start cluster entrypoint %s.", clusterEntrypointName), e);
+			terminationMessageWriter.writeTerminationMessage(TerminationMessage.STARTUP_FAILURE);
 			System.exit(STARTUP_FAILURE_RETURN_CODE);
 		}
 
@@ -525,8 +533,10 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 
 			if (throwable != null) {
 				returnCode = RUNTIME_FAILURE_RETURN_CODE;
+				terminationMessageWriter.writeTerminationMessage(TerminationMessage.RUNTIME_FAILURE);
 			} else {
 				returnCode = applicationStatus.processExitCode();
+				terminationMessageWriter.writeTerminationMessage(TerminationMessage.forApplicationStatus(applicationStatus));
 			}
 
 			LOG.info("Terminating cluster entrypoint process {} with exit code {}.", clusterEntrypointName, returnCode, throwable);
