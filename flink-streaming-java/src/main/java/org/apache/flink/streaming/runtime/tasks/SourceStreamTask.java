@@ -63,7 +63,7 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 	 * Indicates whether this Task was purposefully finished (by finishTask()), in this case we
 	 * want to ignore exceptions thrown after finishing, to ensure shutdown works smoothly.
 	 */
-	private volatile boolean isFinished = false;
+	private volatile boolean wasStoppedExternally = false;
 
 	public SourceStreamTask(Environment env) throws Exception {
 		this(env, new Object());
@@ -136,9 +136,16 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 		sourceThread.getCompletionFuture().whenComplete((Void ignore, Throwable sourceThreadThrowable) -> {
 			if (isCanceled() && ExceptionUtils.findThrowable(sourceThreadThrowable, InterruptedException.class).isPresent()) {
 				mailboxProcessor.reportThrowable(new CancelTaskException(sourceThreadThrowable));
-			} else if (!isFinished && sourceThreadThrowable != null) {
+			} else if (!wasStoppedExternally && sourceThreadThrowable != null) {
 				mailboxProcessor.reportThrowable(sourceThreadThrowable);
+			} else if (sourceThreadThrowable != null || isCanceled() || wasStoppedExternally) {
+				mailboxProcessor.allActionsCompleted();
 			} else {
+				// this is a "true" end of input regardless of whether
+				// stop-with-savepoint was issued or not
+				synchronized (lock) {
+					operatorChain.setIsStoppingBySyncSavepoint(false);
+				}
 				mailboxProcessor.allActionsCompleted();
 			}
 		});
@@ -163,7 +170,7 @@ public class SourceStreamTask<OUT, SRC extends SourceFunction<OUT>, OP extends S
 
 	@Override
 	protected void finishTask() throws Exception {
-		isFinished = true;
+		wasStoppedExternally = true;
 		cancelTask();
 	}
 
